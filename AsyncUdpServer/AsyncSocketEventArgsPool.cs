@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Threading;
 
-namespace AsyncUdpServer
+namespace AsyncUdp
 {
     public class AsyncSocketEventArgsPool : IDisposable
     {
