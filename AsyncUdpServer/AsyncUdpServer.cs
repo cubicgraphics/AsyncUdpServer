@@ -290,6 +290,13 @@ namespace AsyncUdp
 
             // Received some data from the client
             int size = e.BytesTransferred;
+            //If size is bigger than max allowed, then ignore packet
+            if(size > ((SocketToken)e.UserToken!).Buffer.Length)
+            {
+                ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
+                ReceiveSemaphoreQueue.Release();
+                return;
+            }
 
             // Call the datagram received handler
             byte[] Received = new byte[size];
