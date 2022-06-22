@@ -36,5 +36,8 @@ namespace AsyncUdp
         {
             semaphore.Release();
         }
+        public int RemainingCount => semaphore.CurrentCount;
+
+        public int QueueCount => queue.Count;
     }
 }
