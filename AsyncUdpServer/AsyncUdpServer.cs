@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace AsyncUdpServer
@@ -34,7 +35,7 @@ namespace AsyncUdpServer
 
         public AsyncUdpServer(IPEndPoint endpoint) : this(endpoint, 4){}
 
-        public AsyncUdpServer(IPEndPoint endpoint, int maxClients) : this(endpoint, maxClients, 4096){}
+        public AsyncUdpServer(IPEndPoint endpoint, int maxClients) : this(endpoint, maxClients, 8192){}
 
         public AsyncUdpServer(IPEndPoint endpoint, int maxClients, int maxBufferSize)
         {
@@ -183,17 +184,30 @@ namespace AsyncUdpServer
         /// </summary>
         /// <param name="endpoint">Endpoint to send</param>
         /// <param name="buffer">Datagram buffer to send</param>
-        /// <param name="offset">Datagram buffer offset</param>
-        /// <param name="size">Datagram buffer size</param>
+        public void Send(EndPoint endpoint, ReadOnlySpan<byte> buffer)
+        {
+            _ = SendAsync(endpoint, buffer.ToArray(), CancellationToken.None);
+        }
+        /// <summary>
+        /// Send datagram to the given endpoint (asynchronous)
+        /// </summary>
+        /// <param name="endpoint">Endpoint to send</param>
+        /// <param name="buffer">Datagram buffer to send</param>
+        /// <param name="cancellationToken">Can be canceled if the queue to send is taking too long</param>
         /// <returns>'true' if the datagram was successfully sent, 'false' if the datagram was not sent</returns>
-        public virtual async Task<bool> SendAsync(EndPoint endpoint, Memory<byte> buffer)
+        public virtual async Task<bool> SendAsync(EndPoint endpoint, Memory<byte> buffer, CancellationToken cancellationToken)
         {
             if (!IsStarted)
                 return false;
 
             if (buffer.Length == 0)
                 return true;
-            await ReceiveSemaphoreQueue.WaitAsync();
+            await SendSemaphoreQueue.WaitAsync();
+            if (cancellationToken.IsCancellationRequested)
+            {
+                SendSemaphoreQueue.Release();
+                return false;
+            }
             if (!SendAsyncSocketEventArgsPool.GetFromPool(out int ID))
                 return false;
 
@@ -210,7 +224,7 @@ namespace AsyncUdpServer
                 if (!_Socket.SendToAsync(SendSocket))
                     ProcessSendTo(SendSocket);
             }
-            catch (ObjectDisposedException) { SendAsyncSocketEventArgsPool.ReturnToPool(ID); ReceiveSemaphoreQueue.Release(); }
+            catch (ObjectDisposedException) { SendAsyncSocketEventArgsPool.ReturnToPool(ID); SendSemaphoreQueue.Release(); }
 
             return true;
         }
@@ -245,22 +259,24 @@ namespace AsyncUdpServer
         /// </summary>
         private void ProcessReceiveFrom(SocketAsyncEventArgs e)
         {
-            ReceiveSemaphoreQueue.Release();
+
             TryReceive();
             if (!IsStarted)
             {
                 ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
+                ReceiveSemaphoreQueue.Release();
                 return;
             }
             EndPoint REndPoint = e.RemoteEndPoint!;
             // Check for error
-            if (e.SocketError != SocketError.Success)
+            if (e.SocketError != SocketError.Success || e.BytesTransferred == 0)
             {
                 SendError(e.SocketError);
 
                 // Call the datagram received zero handler
-                ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
                 OnReceived(REndPoint, ReadOnlySpan<byte>.Empty);
+                ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
+                ReceiveSemaphoreQueue.Release();
                 return;
             }
 
@@ -270,8 +286,9 @@ namespace AsyncUdpServer
             // Call the datagram received handler
             byte[] Received = new byte[size];
             Buffer.BlockCopy(e.Buffer!, e.Offset, Received, 0, size);
-            ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
             OnReceived(REndPoint, Received);
+            ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
+            ReceiveSemaphoreQueue.Release();
         }
 
         /// <summary>
@@ -282,7 +299,7 @@ namespace AsyncUdpServer
             if (!IsStarted)
             {
                 SendAsyncSocketEventArgsPool.ReturnToPool(e);
-                ReceiveSemaphoreQueue.Release();
+                SendSemaphoreQueue.Release();
                 return;
             }
             EndPoint REndPoint = e.RemoteEndPoint!;
@@ -292,21 +309,21 @@ namespace AsyncUdpServer
                 SendError(e.SocketError);
 
                 // Call the buffer sent zero handler
-                SendAsyncSocketEventArgsPool.ReturnToPool(e);
                 OnSent(REndPoint, 0);
-                ReceiveSemaphoreQueue.Release();
+                SendAsyncSocketEventArgsPool.ReturnToPool(e);
+                SendSemaphoreQueue.Release();
                 return;
             }
 
             long sent = e.BytesTransferred;
-            SendAsyncSocketEventArgsPool.ReturnToPool(e);
             // Send some data to the client
             if (sent > 0)
             {
                 // Call the buffer sent handler
                 OnSent(REndPoint, sent);
             }
-            ReceiveSemaphoreQueue.Release();
+            SendAsyncSocketEventArgsPool.ReturnToPool(e);
+            SendSemaphoreQueue.Release();
         }
 
         #region Datagram handlers / Override-able methords
