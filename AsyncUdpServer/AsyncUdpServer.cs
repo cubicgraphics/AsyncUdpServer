@@ -15,9 +15,11 @@ namespace AsyncUdp
 
         public int Port => IPEndpoint.Port;
 
-        private int MaxClients;
+        private int AsyncCount;
 
         private int MaxBufferSize;
+
+        public bool ReceiveAsync { get; private set; }
 
         public IPEndPoint IPEndpoint { get; private set; }
         public EndPoint Endpoint { get; private set; }
@@ -35,17 +37,18 @@ namespace AsyncUdp
 
         EndPoint _receiveEndpoint;
 
-        public AsyncUdpServer(IPEndPoint endpoint) : this(endpoint, 4){}
+        public AsyncUdpServer(IPEndPoint endpoint, bool receiveAsync) : this(endpoint, 4, receiveAsync){}
 
-        public AsyncUdpServer(IPEndPoint endpoint, int maxClients) : this(endpoint, maxClients, 8192){}
+        public AsyncUdpServer(IPEndPoint endpoint, int asyncCount, bool receiveAsync) : this(endpoint, asyncCount, 8192, receiveAsync) {}
 
-        public AsyncUdpServer(IPEndPoint endpoint, int maxClients, int maxBufferSize)
+        public AsyncUdpServer(IPEndPoint endpoint, int asyncCount, int maxBufferSize, bool receiveAsync)
         {
             Address = endpoint.Address.ToString();
             Endpoint = endpoint;
             IPEndpoint = endpoint;
-            MaxClients = maxClients;
+            AsyncCount = asyncCount;
             MaxBufferSize = maxBufferSize;
+            ReceiveAsync = receiveAsync;
         }
 
         /// <summary>
@@ -71,11 +74,11 @@ namespace AsyncUdp
             //Debug.WriteLine("STARTED___________________________________");
             // Setup event args
 
-            SendSemaphoreQueue = new(MaxClients);
-            ReceiveSemaphoreQueue = new(MaxClients);
+            SendSemaphoreQueue = new(AsyncCount);
+            ReceiveSemaphoreQueue = new(AsyncCount);
 
-            SendAsyncSocketEventArgsPool = new AsyncSocketEventArgsPool(MaxClients, MaxBufferSize, OnAsyncCompleted!);
-            ReceiveAsyncSocketEventArgsPool = new AsyncSocketEventArgsPool(MaxClients, MaxBufferSize, OnAsyncCompleted!);
+            SendAsyncSocketEventArgsPool = new AsyncSocketEventArgsPool(AsyncCount, MaxBufferSize, OnAsyncCompleted!);
+            ReceiveAsyncSocketEventArgsPool = new AsyncSocketEventArgsPool(AsyncCount, MaxBufferSize, OnAsyncCompleted!);
 
             // Create a new server socket
             _Socket = CreateSocket();
@@ -268,7 +271,10 @@ namespace AsyncUdp
         private void ProcessReceiveFrom(SocketAsyncEventArgs e)
         {
             //Debug.WriteLine("Received");
-            TryReceive(); //Instantly start waiting to recieve again
+            bool receiveAsync = ReceiveAsync;
+            if(receiveAsync)
+                TryReceive(); //Instantly start waiting to recieve again
+
             if (!IsStarted)
             {
                 ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
@@ -285,6 +291,8 @@ namespace AsyncUdp
                 OnReceived(REndPoint, ReadOnlySpan<byte>.Empty);
                 ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
                 ReceiveSemaphoreQueue.Release();
+                if (!receiveAsync)
+                    TryReceive();
                 return;
             }
 
@@ -302,9 +310,11 @@ namespace AsyncUdp
             byte[] Received = new byte[size];
             Buffer.BlockCopy(e.Buffer!, e.Offset, Received, 0, size);
             OnReceived(REndPoint, Received);
-            bool returned = ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
-            //Debug.WriteLine("Receive Returned to pool: " + returned);
+            ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
             ReceiveSemaphoreQueue.Release();
+            if (!receiveAsync)
+                TryReceive();
+
         }
 
         /// <summary>
