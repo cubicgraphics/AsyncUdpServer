@@ -303,6 +303,8 @@ namespace AsyncUdp
             {
                 ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
                 ReceiveSemaphoreQueue.Release();
+                if (!receiveAsync)
+                    TryReceive();
                 return;
             }
 
