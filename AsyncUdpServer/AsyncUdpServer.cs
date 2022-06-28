@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -19,7 +18,7 @@ namespace AsyncUdp
 
         private int MaxBufferSize;
 
-        public bool ReceiveAsync { get; private set; }
+        public readonly bool ReceiveAsync;
 
         public IPEndPoint IPEndpoint { get; private set; }
         public EndPoint Endpoint { get; private set; }
@@ -77,8 +76,8 @@ namespace AsyncUdp
             SendSemaphoreQueue = new(AsyncCount);
             ReceiveSemaphoreQueue = new(AsyncCount);
 
-            SendAsyncSocketEventArgsPool = new AsyncSocketEventArgsPool(AsyncCount, MaxBufferSize, OnAsyncCompleted!);
-            ReceiveAsyncSocketEventArgsPool = new AsyncSocketEventArgsPool(AsyncCount, MaxBufferSize, OnAsyncCompleted!);
+            SendAsyncSocketEventArgsPool = new AsyncSocketEventArgsPool(AsyncCount, MaxBufferSize, OnAsyncSendCompleted!);
+            ReceiveAsyncSocketEventArgsPool = new AsyncSocketEventArgsPool(AsyncCount, MaxBufferSize, OnAsyncReceiveCompleted!);
 
             // Create a new server socket
             _Socket = CreateSocket();
@@ -167,10 +166,7 @@ namespace AsyncUdp
             await ReceiveSemaphoreQueue.WaitAsync();
             //Debug.WriteLine("TryReceiveSemaphore count: " + ReceiveSemaphoreQueue.RemainingCount);
             if (!ReceiveAsyncSocketEventArgsPool.GetSocketFromPool(out var ReceiveSocket))
-            {
-                //Debug.WriteLine("NO items in receiving pool");
                 return;
-            }
             //Debug.WriteLine("Receive pool ID: " + ReceiveSocket.UserToken);
 
             try
@@ -183,7 +179,7 @@ namespace AsyncUdp
                 if (!_Socket.ReceiveFromAsync(ReceiveSocket))
                     ProcessReceiveFrom(ReceiveSocket);
             }
-            catch (ObjectDisposedException ex) { /*Debug.WriteLine("Receive EX: " + ex);*/ ReceiveAsyncSocketEventArgsPool.ReturnToPool(ReceiveSocket); ReceiveSemaphoreQueue.Release(); }
+            catch (ObjectDisposedException /*ex*/) { /*Debug.WriteLine("Receive EX: " + ex);*/ ReceiveAsyncSocketEventArgsPool.ReturnToPool(ReceiveSocket); ReceiveSemaphoreQueue.Release(); }
         }
 
 
@@ -193,7 +189,7 @@ namespace AsyncUdp
         /// </summary>
         /// <param name="endpoint">Endpoint to send</param>
         /// <param name="buffer">Datagram buffer to send</param>
-        public void Send(EndPoint endpoint, ReadOnlyMemory<byte> buffer)
+        public void Send(EndPoint endpoint, Memory<byte> buffer)
         {
             _ = SendAsync(endpoint, buffer, CancellationToken.None);
         }
@@ -204,7 +200,7 @@ namespace AsyncUdp
         /// <param name="buffer">Datagram buffer to send</param>
         /// <param name="cancellationToken">Can be canceled if the queue to send is taking too long</param>
         /// <returns>'true' if the datagram was successfully sent, 'false' if the datagram was not sent</returns>
-        public virtual async Task<bool> SendAsync(EndPoint endpoint, ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
+        public virtual async Task<bool> SendAsync(EndPoint endpoint, Memory<byte> buffer, CancellationToken cancellationToken)
         {
             if (!IsStarted)
                 return false;
@@ -219,24 +215,22 @@ namespace AsyncUdp
             }
             if (!SendAsyncSocketEventArgsPool.GetSocketFromPool(out var SendSocket))
             {
-                //Debug.WriteLine("Pool Empty");
+                SendSemaphoreQueue.Release();
                 return false;
             }
             //Debug.WriteLine("Send pool ID: " + SendSocket.UserToken);
 
-
-
             try
             {
 
-                EndPoint SendPoint = endpoint;
-                SendSocket.RemoteEndPoint = SendPoint;
+                //EndPoint SendPoint = endpoint;
+                SendSocket.RemoteEndPoint = endpoint;
                 buffer.CopyTo(((SocketToken)SendSocket.UserToken!).Buffer);
                 SendSocket.SetBuffer(((SocketToken)SendSocket.UserToken!).Buffer, 0, buffer.Length);
                 if (!_Socket.SendToAsync(SendSocket))
                     ProcessSendTo(SendSocket);
             }
-            catch (ObjectDisposedException ex) { /*Debug.WriteLine("Send EX: " + ex);*/ SendAsyncSocketEventArgsPool.ReturnToPool(SendSocket); SendSemaphoreQueue.Release(); }
+            catch (ObjectDisposedException /*ex*/) { /*Debug.WriteLine("Send EX: " + ex);*/ SendAsyncSocketEventArgsPool.ReturnToPool(SendSocket); SendSemaphoreQueue.Release(); }
 
             return true;
         }
@@ -246,23 +240,33 @@ namespace AsyncUdp
         /// <summary>
         /// This method is called whenever a receive or send operation is completed on a socket
         /// </summary>
-        private void OnAsyncCompleted(object sender, SocketAsyncEventArgs e)
+        private void OnAsyncSendCompleted(object sender, SocketAsyncEventArgs e)
         {
             if (IsSocketDisposed)
                 return;
+            ProcessSendTo(e);
+        }
 
-            switch (e.LastOperation)
-            {
-                case SocketAsyncOperation.ReceiveFrom:
-                    ProcessReceiveFrom(e);
-                    break;
-                case SocketAsyncOperation.SendTo:
-                    ProcessSendTo(e);
-                    break;
-                default:
-                    throw new ArgumentException("The last operation completed on the socket was not a receive or send");
-            }
+        /// <summary>
+        /// This method is called whenever a receive or send operation is completed on a socket
+        /// </summary>
+        private void OnAsyncReceiveCompleted(object sender, SocketAsyncEventArgs e)
+        {
+            if (IsSocketDisposed)
+                return;
+            ProcessReceiveFrom(e);
+        }
 
+        private void ReleaseReceiveSocket(SocketAsyncEventArgs e)
+        {
+            ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
+            ReceiveSemaphoreQueue.Release();
+        }
+
+        private void ReleaseSendSocket(SocketAsyncEventArgs e)
+        {
+            SendAsyncSocketEventArgsPool.ReturnToPool(e);
+            SendSemaphoreQueue.Release();
         }
 
         /// <summary>
@@ -271,27 +275,24 @@ namespace AsyncUdp
         private void ProcessReceiveFrom(SocketAsyncEventArgs e)
         {
             //Debug.WriteLine("Received");
-            bool receiveAsync = ReceiveAsync;
-            if(receiveAsync)
+            if(ReceiveAsync)
                 TryReceive(); //Instantly start waiting to recieve again
 
             if (!IsStarted)
             {
-                ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
-                ReceiveSemaphoreQueue.Release();
+                ReleaseReceiveSocket(e);
                 return;
             }
             EndPoint REndPoint = e.RemoteEndPoint!;
             // Check for error
-            if (e.SocketError != SocketError.Success || e.BytesTransferred == 0)
+            if (e.SocketError != SocketError.Success || e.BytesTransferred <= 0)
             {
                 SendError(e.SocketError);
 
                 // Call the datagram received zero handler
-                OnReceived(REndPoint, ReadOnlySpan<byte>.Empty);
-                ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
-                ReceiveSemaphoreQueue.Release();
-                if (!receiveAsync)
+                OnReceived(REndPoint, Memory<byte>.Empty);
+                ReleaseReceiveSocket(e);
+                if (!ReceiveAsync)
                     TryReceive();
                 return;
             }
@@ -301,9 +302,8 @@ namespace AsyncUdp
             //If size is bigger than max allowed, then ignore packet
             if(size > ((SocketToken)e.UserToken!).Buffer.Length)
             {
-                ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
-                ReceiveSemaphoreQueue.Release();
-                if (!receiveAsync)
+                ReleaseReceiveSocket(e);
+                if (!ReceiveAsync)
                     TryReceive();
                 return;
             }
@@ -312,9 +312,8 @@ namespace AsyncUdp
             byte[] Received = new byte[size];
             Buffer.BlockCopy(e.Buffer!, e.Offset, Received, 0, size);
             OnReceived(REndPoint, Received);
-            ReceiveAsyncSocketEventArgsPool.ReturnToPool(e);
-            ReceiveSemaphoreQueue.Release();
-            if (!receiveAsync)
+            ReleaseReceiveSocket(e);
+            if (!ReceiveAsync)
                 TryReceive();
 
         }
@@ -327,8 +326,7 @@ namespace AsyncUdp
             //Debug.WriteLine("Sent");
             if (!IsStarted)
             {
-                SendAsyncSocketEventArgsPool.ReturnToPool(e);
-                SendSemaphoreQueue.Release();
+                ReleaseSendSocket(e);
                 return;
             }
             EndPoint REndPoint = e.RemoteEndPoint!;
@@ -339,22 +337,18 @@ namespace AsyncUdp
 
                 // Call the buffer sent zero handler
                 OnSent(REndPoint, 0);
-                SendAsyncSocketEventArgsPool.ReturnToPool(e);
-                SendSemaphoreQueue.Release();
+                ReleaseSendSocket(e);
                 return;
             }
 
-            long sent = e.BytesTransferred;
+            var sent = e.BytesTransferred;
             // Send some data to the client
             if (sent > 0)
             {
                 // Call the buffer sent handler
                 OnSent(REndPoint, sent);
             }
-            bool returned_successfully = SendAsyncSocketEventArgsPool.ReturnToPool(e);
-            //Debug.WriteLine("Send Returned to pool: " + returned_successfully);
-            SendSemaphoreQueue.Release();
-
+            ReleaseSendSocket(e);
         }
 
         #region Datagram handlers / Override-able methords
@@ -386,7 +380,7 @@ namespace AsyncUdp
         /// <remarks>
         /// Notification is called when another datagram was received from some endpoint
         /// </remarks>
-        protected virtual void OnReceived(EndPoint endpoint, ReadOnlySpan<byte> buffer) { }
+        protected virtual void OnReceived(EndPoint endpoint, Memory<byte> buffer) { }
         /// <summary>
         /// Handle datagram sent notification
         /// </summary>

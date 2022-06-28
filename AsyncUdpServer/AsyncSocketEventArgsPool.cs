@@ -33,7 +33,6 @@ namespace AsyncUdp
                 SocketArgs[i].Completed += eventHandler;
                 SocketArgs[i].UserToken = new SocketToken(i,new byte[MaxBufferPer]);
                 SocketArgs[i].SetBuffer(((SocketToken)SocketArgs[i].UserToken!).Buffer, 0, MaxBufferPer);
-
             }
         }
 
@@ -71,11 +70,11 @@ namespace AsyncUdp
         /// Puts back into the pool
         /// </summary>
         /// <returns>'False' if the value is not within the range of the pool</returns>
-        public bool ReturnToPool(SocketAsyncEventArgs socketAsyncEventArgs)
+        public bool ReturnToPool(in SocketAsyncEventArgs socketAsyncEventArgs)
         {
-            if (socketAsyncEventArgs.UserToken == null || socketAsyncEventArgs.UserToken.GetType() != typeof(SocketToken))
-                return false;
-            EmptySocketArgs.Push(((SocketToken)socketAsyncEventArgs.UserToken).Id);
+            //if (socketAsyncEventArgs.UserToken == null || socketAsyncEventArgs.UserToken.GetType() != typeof(SocketToken))
+            //    return false;
+            EmptySocketArgs.Push(((SocketToken)socketAsyncEventArgs.UserToken!).Id);
             return true;
         }
 

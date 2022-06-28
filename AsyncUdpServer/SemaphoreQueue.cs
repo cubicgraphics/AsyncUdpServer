@@ -26,8 +26,8 @@ namespace AsyncUdp
             queue.Enqueue(tcs);
             semaphore.WaitAsync().ContinueWith(t =>
             {
-                TaskCompletionSource<bool> popped;
-                if (queue.TryDequeue(out popped))
+                //TaskCompletionSource<bool> popped;
+                if (queue.TryDequeue(out var popped))
                     popped.SetResult(true);
             });
             return tcs.Task;
