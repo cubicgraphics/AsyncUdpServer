@@ -179,7 +179,7 @@ namespace AsyncUdp
                 if (!_Socket.ReceiveFromAsync(ReceiveSocket))
                     ProcessReceiveFrom(ReceiveSocket);
             }
-            catch (ObjectDisposedException /*ex*/) { /*Debug.WriteLine("Receive EX: " + ex);*/ ReceiveAsyncSocketEventArgsPool.ReturnToPool(ReceiveSocket); ReceiveSemaphoreQueue.Release(); }
+            catch (ObjectDisposedException ex) { /*Debug.WriteLine("Receive EX: " + ex);*/ ReceiveAsyncSocketEventArgsPool.ReturnToPool(ReceiveSocket); ReceiveSemaphoreQueue.Release(); }
         }
 
 
@@ -230,7 +230,7 @@ namespace AsyncUdp
                 if (!_Socket.SendToAsync(SendSocket))
                     ProcessSendTo(SendSocket);
             }
-            catch (ObjectDisposedException /*ex*/) { /*Debug.WriteLine("Send EX: " + ex);*/ SendAsyncSocketEventArgsPool.ReturnToPool(SendSocket); SendSemaphoreQueue.Release(); }
+            catch (ObjectDisposedException ex) { /*Debug.WriteLine("Send EX: " + ex);*/ SendAsyncSocketEventArgsPool.ReturnToPool(SendSocket); SendSemaphoreQueue.Release(); }
 
             return true;
         }
