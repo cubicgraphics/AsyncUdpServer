@@ -244,6 +244,8 @@ namespace AsyncUdp
         {
             if (IsSocketDisposed)
                 return;
+            if (e.LastOperation != SocketAsyncOperation.SendTo)
+                return;
             ProcessSendTo(e);
         }
 
@@ -253,6 +255,8 @@ namespace AsyncUdp
         private void OnAsyncReceiveCompleted(object sender, SocketAsyncEventArgs e)
         {
             if (IsSocketDisposed)
+                return;
+            if (e.LastOperation != SocketAsyncOperation.ReceiveFrom)
                 return;
             ProcessReceiveFrom(e);
         }
