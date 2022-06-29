@@ -18,7 +18,7 @@ namespace AsyncUdp
 
         private int MaxBufferSize;
 
-        private bool ReceiveAsync;
+        private readonly bool ReceiveAsync;
 
         public IPEndPoint IPEndpoint { get; private set; }
         public EndPoint Endpoint { get; private set; }
@@ -179,7 +179,7 @@ namespace AsyncUdp
                 if (!_Socket.ReceiveFromAsync(ReceiveSocket))
                     ProcessReceiveFrom(ReceiveSocket);
             }
-            catch (ObjectDisposedException ex) { /*Debug.WriteLine("Receive EX: " + ex);*/ ReceiveAsyncSocketEventArgsPool.ReturnToPool(ReceiveSocket); ReceiveSemaphoreQueue.Release(); }
+            catch (ObjectDisposedException /*ex*/) { /*Debug.WriteLine("Receive EX: " + ex);*/ ReceiveAsyncSocketEventArgsPool.ReturnToPool(ReceiveSocket); ReceiveSemaphoreQueue.Release(); }
         }
 
 
@@ -223,14 +223,14 @@ namespace AsyncUdp
             try
             {
 
-                EndPoint SendPoint = endpoint;
-                SendSocket.RemoteEndPoint = SendPoint;
+                //EndPoint SendPoint = endpoint;
+                SendSocket.RemoteEndPoint = endpoint;
                 buffer.CopyTo(((SocketToken)SendSocket.UserToken!).Buffer);
                 SendSocket.SetBuffer(((SocketToken)SendSocket.UserToken!).Buffer, 0, buffer.Length);
                 if (!_Socket.SendToAsync(SendSocket))
                     ProcessSendTo(SendSocket);
             }
-            catch (ObjectDisposedException ex) { /*Debug.WriteLine("Send EX: " + ex);*/ SendAsyncSocketEventArgsPool.ReturnToPool(SendSocket); SendSemaphoreQueue.Release(); }
+            catch (ObjectDisposedException /*ex*/) { /*Debug.WriteLine("Send EX: " + ex);*/ SendAsyncSocketEventArgsPool.ReturnToPool(SendSocket); SendSemaphoreQueue.Release(); }
 
             return true;
         }
@@ -302,7 +302,7 @@ namespace AsyncUdp
             }
 
             // Received some data from the client
-            int size = e.BytesTransferred;
+            var size = e.BytesTransferred;
             //If size is bigger than max allowed, then ignore packet
             if(size > ((SocketToken)e.UserToken!).Buffer.Length)
             {
@@ -345,7 +345,7 @@ namespace AsyncUdp
                 return;
             }
 
-            long sent = e.BytesTransferred;
+            var sent = e.BytesTransferred;
             // Send some data to the client
             if (sent > 0)
             {
