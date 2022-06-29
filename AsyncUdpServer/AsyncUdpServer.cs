@@ -18,7 +18,7 @@ namespace AsyncUdp
 
         private int MaxBufferSize;
 
-        public readonly bool ReceiveAsync;
+        private bool ReceiveAsync;
 
         public IPEndPoint IPEndpoint { get; private set; }
         public EndPoint Endpoint { get; private set; }
@@ -223,8 +223,8 @@ namespace AsyncUdp
             try
             {
 
-                //EndPoint SendPoint = endpoint;
-                SendSocket.RemoteEndPoint = endpoint;
+                EndPoint SendPoint = endpoint;
+                SendSocket.RemoteEndPoint = SendPoint;
                 buffer.CopyTo(((SocketToken)SendSocket.UserToken!).Buffer);
                 SendSocket.SetBuffer(((SocketToken)SendSocket.UserToken!).Buffer, 0, buffer.Length);
                 if (!_Socket.SendToAsync(SendSocket))
@@ -345,7 +345,7 @@ namespace AsyncUdp
                 return;
             }
 
-            var sent = e.BytesTransferred;
+            long sent = e.BytesTransferred;
             // Send some data to the client
             if (sent > 0)
             {

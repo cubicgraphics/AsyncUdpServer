@@ -70,7 +70,7 @@ namespace AsyncUdp
         /// Puts back into the pool
         /// </summary>
         /// <returns>'False' if the value is not within the range of the pool</returns>
-        public bool ReturnToPool(in SocketAsyncEventArgs socketAsyncEventArgs)
+        public bool ReturnToPool(SocketAsyncEventArgs socketAsyncEventArgs)
         {
             //if (socketAsyncEventArgs.UserToken == null || socketAsyncEventArgs.UserToken.GetType() != typeof(SocketToken))
             //    return false;
