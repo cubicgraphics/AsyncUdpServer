@@ -26,7 +26,6 @@ namespace AsyncUdp
             queue.Enqueue(tcs);
             semaphore.WaitAsync().ContinueWith(t =>
             {
-                //TaskCompletionSource<bool> popped;
                 if (queue.TryDequeue(out var popped))
                     popped.SetResult(true);
             });
@@ -39,5 +38,7 @@ namespace AsyncUdp
         public int RemainingCount => semaphore.CurrentCount;
 
         public int QueueCount => queue.Count;
+
+        //Que and remaining counts should be the same number
     }
 }

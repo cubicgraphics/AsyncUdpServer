@@ -32,15 +32,20 @@ namespace AsyncUdp
 
         public bool IsStarted { get; private set; }
 
+        private int SendOverloadLimit;
+        private int ReceiveOverloadLimit;
+        public bool SendOverload => SendSemaphoreQueue.RemainingCount > SendOverloadLimit;
+        public bool ReceiveOverloaded => ReceiveSemaphoreQueue.RemainingCount > ReceiveOverloadLimit;
+
         Socket _Socket;
 
         EndPoint _receiveEndpoint;
 
         public AsyncUdpServer(IPEndPoint endpoint, bool receiveAsync) : this(endpoint, 4, receiveAsync){}
 
-        public AsyncUdpServer(IPEndPoint endpoint, int asyncCount, bool receiveAsync) : this(endpoint, asyncCount, 8192, receiveAsync) {}
+        public AsyncUdpServer(IPEndPoint endpoint, int asyncCount, bool receiveAsync) : this(endpoint, asyncCount, 8192, receiveAsync, 100, 100) {}
 
-        public AsyncUdpServer(IPEndPoint endpoint, int asyncCount, int maxBufferSize, bool receiveAsync)
+        public AsyncUdpServer(IPEndPoint endpoint, int asyncCount, int maxBufferSize, bool receiveAsync, int sendOverloadLimit, int receiveOverloadLimit)
         {
             Address = endpoint.Address.ToString();
             Endpoint = endpoint;
@@ -48,6 +53,8 @@ namespace AsyncUdp
             AsyncCount = asyncCount;
             MaxBufferSize = maxBufferSize;
             ReceiveAsync = receiveAsync;
+            SendOverloadLimit = sendOverloadLimit;
+            ReceiveOverloadLimit = receiveOverloadLimit;
         }
 
         /// <summary>
