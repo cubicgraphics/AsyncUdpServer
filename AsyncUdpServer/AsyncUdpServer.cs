@@ -32,8 +32,8 @@ namespace AsyncUdp
 
         public bool IsStarted { get; private set; }
 
-        private int SendOverloadLimit;
-        private int ReceiveOverloadLimit;
+        private readonly int SendOverloadLimit;
+        private readonly int ReceiveOverloadLimit;
         public bool SendOverload => SendSemaphoreQueue.RemainingCount > SendOverloadLimit;
         public bool ReceiveOverloaded => ReceiveSemaphoreQueue.RemainingCount > ReceiveOverloadLimit;
 
