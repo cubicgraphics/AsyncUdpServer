@@ -1,49 +1,53 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 
 namespace AsyncUdp
 {
     public class ReuseableBufferPool
     {
-        ConcurrentDictionary<int,byte[]> Buffers;
-        ConcurrentQueue<int> ReleasedBuffers;
+        byte[] _Buffer;
+        readonly ConcurrentQueue<int> ReleasedBuffers;
 
         private readonly int SizePerBuffer;
-        private int CurrentBufferPos = -1;
+        private int BuffersUsed;
+        private int BufferAmount = 0;
+        private readonly int MaxAmountOfBuffers;
 
-        public ReuseableBufferPool(int sizePerBuffer)
+        public ReuseableBufferPool(int sizePerBuffer, int BufferCount)
         {
-            Buffers = new();
-            ReleasedBuffers = new();
             SizePerBuffer = sizePerBuffer;
+            BuffersUsed = -sizePerBuffer;
+            MaxAmountOfBuffers = BufferCount;
+            _Buffer = GC.AllocateArray<byte>(SizePerBuffer*BufferCount, pinned: true);
+            ReleasedBuffers = new();
         }
 
-        public void GetBuffer(out Memory<byte> BufferSlice, out int BufferId)
+        public bool GetBuffer([MaybeNullWhen(false)] out Memory<byte> BufferSlice,[MaybeNullWhen(false)] out int BufferOffset)
         {
             if(ReleasedBuffers.TryDequeue(out int ID))
             {
-                BufferId = ID;
-                if (Buffers.TryGetValue(ID, out byte[] Buffer))
-                {
-                    BufferSlice = Buffer.AsMemory();
-                    return;
-                }
+                BufferOffset = ID;
+                BufferSlice = _Buffer.AsMemory(BufferOffset, SizePerBuffer);
+                return true;
             }
-            BufferId = Interlocked.Increment(ref CurrentBufferPos);
-            Buffers.TryAdd(BufferId, GC.AllocateArray<byte>(SizePerBuffer, pinned: true));
-            BufferSlice = Buffers[BufferId].AsMemory();
+            if (BufferAmount == MaxAmountOfBuffers)
+            {
+                BufferSlice = null;
+                BufferOffset = 0;
+                return false;
+            }
+            Interlocked.Increment(ref BufferAmount);
+            BuffersUsed = Interlocked.Add(ref BuffersUsed, SizePerBuffer);
+            BufferOffset = BuffersUsed;
+            BufferSlice = _Buffer.AsMemory(BuffersUsed, SizePerBuffer);
+            return true;
         }
 
-        public void ReturnBuffer(in int BufferId)
+        public void ReturnBuffer(in int BufferOffset)
         {
-            ReleasedBuffers.Enqueue(BufferId);
+            ReleasedBuffers.Enqueue(BufferOffset);
         }
-
-        public int GetCurrentBufferCount()
-        {
-            return CurrentBufferPos + 1;
-        }
-
     }
 }

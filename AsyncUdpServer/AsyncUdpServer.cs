@@ -27,12 +27,15 @@ namespace AsyncUdp
         /// <remarks>
         /// If receiveAsync is set to true, then the server will start recieving the next packet while the current one is still being handled
         /// </remarks>
-        public AsyncUdpServer(IPEndPoint endpoint, bool receiveAsync)
+        public AsyncUdpServer(IPEndPoint endpoint, bool receiveAsync, int MaxHandlesWhileRecieving)
         {
             Address = endpoint.Address.ToString();
             Endpoint = endpoint;
             IPEndpoint = endpoint;
             ReceiveAsync = receiveAsync;
+            if(ReceiveAsync)
+                _BufferPool = new ReuseableBufferPool(8192, MaxHandlesWhileRecieving);
+            SerialBuffer = GC.AllocateArray<byte>(8192 * 2, pinned: true);
         }
 
         /// <summary>
@@ -66,9 +69,6 @@ namespace AsyncUdp
             // Apply the option: dual mode (this option must be applied before recieving)
             if (_Socket.AddressFamily == AddressFamily.InterNetworkV6)
                 _Socket.DualMode = true;
-
-
-            _BufferPool = new ReuseableBufferPool(8192);
 
             // Bind the server socket to the endpoint
             _Socket.Bind(Endpoint);
@@ -136,23 +136,30 @@ namespace AsyncUdp
                 RecieveAsync();
                 return;
             }
-            SerialBuffer = GC.AllocateArray<byte>(65527, pinned: true);
-            RecieveSerial();
+            while (IsStarted)
+            {
+                RecieveSerial();
+            }
         }
 
         private async void RecieveAsync()
         {
             if(!IsStarted)
                 return;
-            _BufferPool.GetBuffer(out Memory<byte> BufferSlice, out int BufferId);
+            if(!_BufferPool.GetBuffer(out Memory<byte> BufferSlice, out int BufferId))
+            {
+                RecieveSerial();
+                RecieveAsync();
+                return;
+            }
             EndPoint RecvEndpoint = _receiveEndpoint;
             SocketReceiveFromResult recvResult;
             try
             {
                 recvResult = await _Socket.ReceiveFromAsync(BufferSlice, SocketFlags.None, RecvEndpoint);
             }
-            catch (SocketException) { return; }
-            catch (ObjectDisposedException) { return; }
+            catch (SocketException) { RecieveAsync(); return; }
+            catch (ObjectDisposedException) { RecieveAsync(); return; }
 
             _ = Task.Run(() => RecieveAsync());
 
@@ -164,31 +171,18 @@ namespace AsyncUdp
 
         private async void RecieveSerial()
         {
-            while (IsStarted)
-            {
-                Memory<byte> RecvBuffer = SerialBuffer.AsMemory();
-                EndPoint RecvEndpoint = _receiveEndpoint;
-                SocketReceiveFromResult recvResult;
-                try
-                {
-                    recvResult = await _Socket.ReceiveFromAsync(RecvBuffer, SocketFlags.None, RecvEndpoint);
-                }
-                catch (SocketException) { RecieveSerial(); return; }
-                catch (ObjectDisposedException) { RecieveSerial(); return; }
-
-                var recvPacket = RecvBuffer[..recvResult.ReceivedBytes];
-                OnReceived(recvResult.RemoteEndPoint, recvPacket);
-            }
-        }
-
-        public async virtual void SendAsync(EndPoint endpoint, Memory<byte> buffer, CancellationToken cancellationToken)
-        {
+            Memory<byte> RecvBuffer = SerialBuffer.AsMemory();
+            EndPoint RecvEndpoint = _receiveEndpoint;
+            SocketReceiveFromResult recvResult;
             try
             {
-                await _Socket.SendToAsync(buffer, SocketFlags.None, endpoint, cancellationToken);
+                recvResult = await _Socket.ReceiveFromAsync(RecvBuffer, SocketFlags.None, RecvEndpoint);
             }
-            catch (SocketException) { return; }
-            catch (ObjectDisposedException) { return; }
+            catch (SocketException) { RecieveSerial(); return; }
+            catch (ObjectDisposedException) { RecieveSerial(); return; }
+
+            var recvPacket = RecvBuffer[..recvResult.ReceivedBytes];
+            OnReceived(recvResult.RemoteEndPoint, recvPacket);
         }
 
         /// <summary>
@@ -196,9 +190,14 @@ namespace AsyncUdp
         /// </summary>
         /// <param name="endpoint">Endpoint to send</param>
         /// <param name="buffer">Datagram buffer to send</param>
-        public void SendAsync(EndPoint endpoint, Memory<byte> buffer)
+        public async virtual void SendAsync(EndPoint endpoint, Memory<byte> buffer)
         {
-            SendAsync(endpoint, buffer, CancellationToken.None);
+            try
+            {
+                await _Socket.SendToAsync(buffer, SocketFlags.None, endpoint);
+            }
+            catch (SocketException) { return; }
+            catch (ObjectDisposedException) { return; }
         }
 
         #region Datagram handlers / Override-able methords
