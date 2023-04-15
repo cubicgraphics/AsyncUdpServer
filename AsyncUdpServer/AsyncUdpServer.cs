@@ -179,7 +179,12 @@ namespace AsyncUdp
 
         public async virtual void SendAsync(EndPoint endpoint, Memory<byte> buffer, CancellationToken cancellationToken)
         {
-            await _Socket.SendToAsync(buffer, SocketFlags.None, endpoint, cancellationToken);
+            try
+            {
+                await _Socket.SendToAsync(buffer, SocketFlags.None, endpoint, cancellationToken);
+            }
+            catch (SocketException) { return; }
+            catch (ObjectDisposedException) { return; }
         }
 
         /// <summary>
