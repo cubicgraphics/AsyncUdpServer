@@ -103,6 +103,8 @@ namespace AsyncUdp
             // Call the server stopping handler
             OnStopping();
 
+            // Update the started flag
+            IsStarted = false;
             try
             {
                 // Close the server socket
@@ -116,8 +118,7 @@ namespace AsyncUdp
             }
             catch (ObjectDisposedException) { }
 
-            // Update the started flag
-            IsStarted = false;
+
 
             // Call the server stopped handler
             OnStopped();
@@ -135,13 +136,14 @@ namespace AsyncUdp
                 RecieveAsync();
                 return;
             }
-            SerialBuffer = GC.AllocateArray<byte>(8192, pinned: true);
+            SerialBuffer = GC.AllocateArray<byte>(65527, pinned: true);
             RecieveSerial();
         }
 
         private async void RecieveAsync()
         {
-
+            if(!IsStarted)
+                return;
             _BufferPool.GetBuffer(out Memory<byte> BufferSlice, out int BufferId);
             EndPoint RecvEndpoint = _receiveEndpoint;
             SocketReceiveFromResult recvResult;
@@ -162,19 +164,21 @@ namespace AsyncUdp
 
         private async void RecieveSerial()
         {
-            Memory<byte> RecvBuffer = SerialBuffer.AsMemory();
-            EndPoint RecvEndpoint = _receiveEndpoint;
-            SocketReceiveFromResult recvResult;
-            try
+            while (IsStarted)
             {
-                recvResult = await _Socket.ReceiveFromAsync(RecvBuffer, SocketFlags.None, RecvEndpoint);
-            }
-            catch (SocketException) { return; }
-            catch (ObjectDisposedException) { return; }
+                Memory<byte> RecvBuffer = SerialBuffer.AsMemory();
+                EndPoint RecvEndpoint = _receiveEndpoint;
+                SocketReceiveFromResult recvResult;
+                try
+                {
+                    recvResult = await _Socket.ReceiveFromAsync(RecvBuffer, SocketFlags.None, RecvEndpoint);
+                }
+                catch (SocketException) { RecieveSerial(); return; }
+                catch (ObjectDisposedException) { RecieveSerial(); return; }
 
-            var recvPacket = RecvBuffer[..recvResult.ReceivedBytes];
-            OnReceived(recvResult.RemoteEndPoint, recvPacket);
-            RecieveSerial();
+                var recvPacket = RecvBuffer[..recvResult.ReceivedBytes];
+                OnReceived(recvResult.RemoteEndPoint, recvPacket);
+            }
         }
 
         public async virtual void SendAsync(EndPoint endpoint, Memory<byte> buffer, CancellationToken cancellationToken)
