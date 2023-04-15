@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace AsyncUdp
@@ -33,7 +32,7 @@ namespace AsyncUdp
             Endpoint = endpoint;
             IPEndpoint = endpoint;
             ReceiveAsync = receiveAsync;
-            if(ReceiveAsync)
+            if (ReceiveAsync)
                 _BufferPool = new ReuseableBufferPool(8192, MaxHandlesWhileRecieving);
             SerialBuffer = GC.AllocateArray<byte>(8192 * 2, pinned: true);
         }
@@ -84,7 +83,7 @@ namespace AsyncUdp
             // Update the started flag
             IsStarted = true;
 
-            StartReceive();
+            _ = StartReceiveAsync();
             // Call the server started handler
             OnStarted();
 
@@ -128,7 +127,7 @@ namespace AsyncUdp
 
 
 
-        private void StartReceive()
+        private async Task StartReceiveAsync()
         {
             // Try to receive datagram
             if (ReceiveAsync)
@@ -138,17 +137,17 @@ namespace AsyncUdp
             }
             while (IsStarted)
             {
-                RecieveSerial();
+                await RecieveSerial();
             }
         }
 
         private async void RecieveAsync()
         {
-            if(!IsStarted)
+            if (!IsStarted)
                 return;
-            if(!_BufferPool.GetBuffer(out Memory<byte> BufferSlice, out int BufferId))
+            if (!_BufferPool.GetBuffer(out Memory<byte> BufferSlice, out int BufferId))
             {
-                RecieveSerial();
+                await RecieveSerial();
                 RecieveAsync();
                 return;
             }
@@ -158,8 +157,8 @@ namespace AsyncUdp
             {
                 recvResult = await _Socket.ReceiveFromAsync(BufferSlice, SocketFlags.None, RecvEndpoint);
             }
-            catch (SocketException) { RecieveAsync(); return; }
-            catch (ObjectDisposedException) { RecieveAsync(); return; }
+            catch (SocketException) { return; }
+            catch (ObjectDisposedException) { return; }
 
             _ = Task.Run(() => RecieveAsync());
 
@@ -169,8 +168,10 @@ namespace AsyncUdp
 
         }
 
-        private async void RecieveSerial()
+        private async Task RecieveSerial()
         {
+            if (!IsStarted)
+                return;
             Memory<byte> RecvBuffer = SerialBuffer.AsMemory();
             EndPoint RecvEndpoint = _receiveEndpoint;
             SocketReceiveFromResult recvResult;
@@ -178,8 +179,8 @@ namespace AsyncUdp
             {
                 recvResult = await _Socket.ReceiveFromAsync(RecvBuffer, SocketFlags.None, RecvEndpoint);
             }
-            catch (SocketException) { RecieveSerial(); return; }
-            catch (ObjectDisposedException) { RecieveSerial(); return; }
+            catch (SocketException) { return; }
+            catch (ObjectDisposedException) { return; }
 
             var recvPacket = RecvBuffer[..recvResult.ReceivedBytes];
             OnReceived(recvResult.RemoteEndPoint, recvPacket);

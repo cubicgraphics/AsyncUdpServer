@@ -20,13 +20,13 @@ namespace AsyncUdp
             SizePerBuffer = sizePerBuffer;
             BuffersUsed = -sizePerBuffer;
             MaxAmountOfBuffers = BufferCount;
-            _Buffer = GC.AllocateArray<byte>(SizePerBuffer*BufferCount, pinned: true);
+            _Buffer = GC.AllocateArray<byte>(SizePerBuffer * BufferCount, pinned: true);
             ReleasedBuffers = new();
         }
 
-        public bool GetBuffer([MaybeNullWhen(false)] out Memory<byte> BufferSlice,[MaybeNullWhen(false)] out int BufferOffset)
+        public bool GetBuffer([MaybeNullWhen(false)] out Memory<byte> BufferSlice, [MaybeNullWhen(false)] out int BufferOffset)
         {
-            if(ReleasedBuffers.TryDequeue(out int ID))
+            if (ReleasedBuffers.TryDequeue(out int ID))
             {
                 BufferOffset = ID;
                 BufferSlice = _Buffer.AsMemory(BufferOffset, SizePerBuffer);
