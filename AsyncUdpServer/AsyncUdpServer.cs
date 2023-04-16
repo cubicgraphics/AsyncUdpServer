@@ -188,6 +188,7 @@ namespace AsyncUdp
 
         /// <summary>
         /// Send datagram to the given endpoint (asynchronous)
+        /// Recommended you manage max sends at once if you are not calling this synchronously to avoid a stack overflow exeption from the socket
         /// </summary>
         /// <param name="endpoint">Endpoint to send</param>
         /// <param name="buffer">Datagram buffer to send</param>
@@ -196,6 +197,21 @@ namespace AsyncUdp
             try
             {
                 await _Socket.SendToAsync(buffer, SocketFlags.None, endpoint);
+            }
+            catch (SocketException) { return; }
+            catch (ObjectDisposedException) { return; }
+        }
+
+        /// <summary>
+        /// Send datagram to the given endpoint (Synchronous)
+        /// </summary>
+        /// <param name="endpoint">Endpoint to send</param>
+        /// <param name="buffer">Datagram buffer to send</param>
+        public virtual void SendSerial(EndPoint endpoint, ReadOnlySpan<byte> buffer)
+        {
+            try
+            {
+                _Socket.SendTo(buffer, endpoint);
             }
             catch (SocketException) { return; }
             catch (ObjectDisposedException) { return; }
@@ -225,22 +241,10 @@ namespace AsyncUdp
         /// </summary>
         /// <param name="endpoint">Received endpoint</param>
         /// <param name="buffer">Received datagram buffer</param>
-        /// <param name="offset">Received datagram buffer offset</param>
-        /// <param name="size">Received datagram buffer size</param>
         /// <remarks>
         /// Notification is called when another datagram was received from some endpoint
         /// </remarks>
         protected virtual void OnReceived(EndPoint endpoint, Memory<byte> buffer) { }
-        /// <summary>
-        /// Handle datagram sent notification
-        /// </summary>
-        /// <param name="endpoint">Endpoint of sent datagram</param>
-        /// <param name="sent">Size of sent datagram buffer</param>
-        /// <remarks>
-        /// Notification is called when a datagram was sent to the client.
-        /// This handler could be used to send another datagram to the client for instance when the pending size is zero.
-        /// </remarks>
-        protected virtual void OnSent(EndPoint endpoint, long sent) { }
 
         #endregion
 
