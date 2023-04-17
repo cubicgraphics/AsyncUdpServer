@@ -192,7 +192,7 @@ namespace AsyncUdp
         /// </summary>
         /// <param name="endpoint">Endpoint to send</param>
         /// <param name="buffer">Datagram buffer to send</param>
-        public async virtual void SendAsync(EndPoint endpoint, Memory<byte> buffer)
+        public async virtual Task SendAsync(EndPoint endpoint, Memory<byte> buffer)
         {
             try
             {
@@ -207,7 +207,7 @@ namespace AsyncUdp
         /// </summary>
         /// <param name="endpoint">Endpoint to send</param>
         /// <param name="buffer">Datagram buffer to send</param>
-        public virtual void SendSerial(EndPoint endpoint, ReadOnlySpan<byte> buffer)
+        public virtual void SendSerial(EndPoint endpoint, Span<byte> buffer)
         {
             try
             {
