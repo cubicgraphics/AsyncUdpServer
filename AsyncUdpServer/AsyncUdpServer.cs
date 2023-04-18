@@ -14,7 +14,8 @@ namespace AsyncUdp
         public EndPoint Endpoint { get; private set; }
 
         private byte[] SerialBuffer;
-        ReuseableBufferPool _BufferPool;
+        private readonly ReuseableBufferPool _RecvBufferPool;
+
         public bool IsStarted { get; private set; }
         Socket _Socket;
         EndPoint _receiveEndpoint;
@@ -26,15 +27,15 @@ namespace AsyncUdp
         /// <remarks>
         /// If receiveAsync is set to true, then the server will start recieving the next packet while the current one is still being handled
         /// </remarks>
-        public AsyncUdpServer(IPEndPoint endpoint, bool receiveAsync, int MaxHandlesWhileRecieving)
+        public AsyncUdpServer(IPEndPoint endpoint, bool receiveAsync, int RecvBufferPoolSize, int BufferSize)
         {
             Address = endpoint.Address.ToString();
             Endpoint = endpoint;
             IPEndpoint = endpoint;
             ReceiveAsync = receiveAsync;
             if (ReceiveAsync)
-                _BufferPool = new ReuseableBufferPool(8192, MaxHandlesWhileRecieving);
-            SerialBuffer = GC.AllocateArray<byte>(8192 * 2, pinned: true);
+                _RecvBufferPool = new ReuseableBufferPool(BufferSize, RecvBufferPoolSize);
+            SerialBuffer = GC.AllocateArray<byte>(BufferSize, pinned: true);
         }
 
         /// <summary>
@@ -145,7 +146,7 @@ namespace AsyncUdp
         {
             if (!IsStarted)
                 return;
-            if (!_BufferPool.GetBuffer(out Memory<byte> BufferSlice, out int BufferId))
+            if (!_RecvBufferPool.GetBuffer(out Memory<byte> BufferSlice, out int BufferId))
             {
                 await RecieveSerial();
                 RecieveAsync();
@@ -164,7 +165,7 @@ namespace AsyncUdp
 
             var recvPacket = BufferSlice[..recvResult.ReceivedBytes];
             OnReceived(recvResult.RemoteEndPoint, recvPacket);
-            _BufferPool.ReturnBuffer(BufferId);
+            _RecvBufferPool.ReturnBuffer(BufferId);
 
         }
 
