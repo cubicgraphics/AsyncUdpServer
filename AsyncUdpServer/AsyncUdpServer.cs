@@ -201,6 +201,7 @@ namespace AsyncUdp
             }
             catch (SocketException) { return; }
             catch (ObjectDisposedException) { return; }
+            catch (Exception) { return; }
         }
 
         /// <summary>
@@ -216,6 +217,7 @@ namespace AsyncUdp
             }
             catch (SocketException) { return; }
             catch (ObjectDisposedException) { return; }
+            catch (Exception) { return; }
         }
 
         #region Datagram handlers / Override-able methords
