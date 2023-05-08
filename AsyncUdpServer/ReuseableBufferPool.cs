@@ -8,12 +8,14 @@ namespace AsyncUdp
         private readonly int SizePerBuffer;
         private readonly object _NewBufferLock = new();
         private int BuffersUsed;
+        private int MaxBuffers;
         private int BufferAmount = 0;
 
         public ReuseableBufferPool(int sizePerBuffer, int BufferCount)
         {
             SizePerBuffer = sizePerBuffer;
             BuffersUsed = -sizePerBuffer;
+            MaxBuffers = BufferCount;
             _Buffer = GC.AllocateArray<byte>(SizePerBuffer * BufferCount, pinned: true);
             ReleasedBuffers = new int[BufferCount];
         }
@@ -59,7 +61,7 @@ namespace AsyncUdp
             }
             lock (_NewBufferLock)
             {
-                if (BufferAmount == _Buffer.Length)
+                if (BufferAmount == MaxBuffers)
                 {
                     BufferSlice = null;
                     BufferOffset = 0;
